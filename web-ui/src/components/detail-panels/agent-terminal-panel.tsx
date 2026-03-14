@@ -312,7 +312,7 @@ function AgentTerminalPanelLayout({
 					</div>
 				</div>
 			) : null}
-			<div style={{ flex: "1 1 0", minHeight: 0, overflow: "hidden", padding: "3px 1.5px 3px 3px" }}>
+			<div style={{ flex: "1 1 0", minHeight: 0, overflow: "hidden", padding: "3px 1.5px 0 3px" }}>
 				<div
 					ref={containerRef}
 					className="kb-terminal-container"
@@ -327,7 +327,7 @@ function AgentTerminalPanelLayout({
 				</div>
 			) : null}
 			{showMoveToTrash && onMoveToTrash ? (
-				<div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "8px 12px" }}>
+				<div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "4px 12px 8px" }}>
 					<AgentTerminalReviewActions
 						taskId={taskId}
 						taskColumnId={taskColumnId}

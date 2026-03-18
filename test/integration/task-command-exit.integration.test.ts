@@ -7,7 +7,11 @@ import { pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { cleanupChildProcess, waitForChildProcessClose } from "../utilities/child-process.js";
+import {
+	cleanupChildProcess,
+	unrefChildProcessIpc,
+	waitForChildProcessClose,
+} from "../utilities/child-process.js";
 import { createGitTestEnv } from "../utilities/git-env.js";
 import { createTempDir } from "../utilities/temp-dir.js";
 
@@ -154,6 +158,7 @@ async function requestGracefulShutdown(process: ChildProcess): Promise<void> {
 
 	await new Promise<void>((resolveSend) => {
 		process.send?.({ type: "kanban.shutdown" }, () => {
+			process.disconnect?.();
 			resolveSend();
 		});
 	});
@@ -239,6 +244,7 @@ describe("source task commands", () => {
 					stdio: ["ignore", "pipe", "pipe", "ipc"],
 				},
 			);
+			unrefChildProcessIpc(serverProcess);
 
 			try {
 				await waitForServerStart(serverProcess);
@@ -324,6 +330,7 @@ describe("source task commands", () => {
 					stdio: ["ignore", "pipe", "pipe", "ipc"],
 				},
 			);
+			unrefChildProcessIpc(serverProcess);
 
 			try {
 				await waitForServerStart(serverProcess);

@@ -52,6 +52,18 @@ export async function waitForChildProcessClose(childProcess: ChildProcess, timeo
 	});
 }
 
+export function unrefChildProcessIpc(childProcess: ChildProcess): void {
+	// These integration tests open an IPC channel only to request graceful
+	// shutdown from the parent. Once the child installs a `message` handler,
+	// Node may keep that channel ref'd, which showed up in CI as Node 22 Vitest
+	// workers hanging after all tests had already finished printing. Unref the
+	// channel immediately and pair it with explicit `disconnect()` during
+	// shutdown so the test transport never becomes the thing that pins process
+	// exit.
+	const channel = childProcess.channel as { unref?: () => void } | null | undefined;
+	channel?.unref?.();
+}
+
 export function cleanupChildProcess(childProcess: ChildProcess): void {
 	if (typeof childProcess.disconnect === "function" && childProcess.connected) {
 		try {

@@ -26,7 +26,11 @@ import type {
 	RuntimeWorkspaceStateResponse,
 	RuntimeWorktreeEnsureResponse,
 } from "../../src/core/api-contract.js";
-import { cleanupChildProcess, waitForChildProcessClose } from "../utilities/child-process.js";
+import {
+	cleanupChildProcess,
+	unrefChildProcessIpc,
+	waitForChildProcessClose,
+} from "../utilities/child-process.js";
 import { createGitTestEnv } from "../utilities/git-env.js";
 import { createTempDir } from "../utilities/temp-dir.js";
 
@@ -248,7 +252,10 @@ async function requestGracefulShutdown(childProcess: ChildProcess): Promise<void
 		childProcess.send({ type: "kanban.shutdown" }, (error) => {
 			if (error) {
 				childProcess.kill(getShutdownSignal());
+				resolveSend();
+				return;
 			}
+			childProcess.disconnect?.();
 			resolveSend();
 		});
 	});
@@ -287,6 +294,7 @@ async function startKanbanServer(input: {
 		stdio: ["ignore", "pipe", "pipe", "ipc"],
 		},
 	);
+	unrefChildProcessIpc(child);
 	const { runtimeUrl } = await waitForProcessStart(child);
 	return {
 		runtimeUrl,

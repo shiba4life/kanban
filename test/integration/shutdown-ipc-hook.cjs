@@ -8,4 +8,10 @@ process.on("message", (message) => {
 	}
 
 	process.emit("SIGINT");
+	// The IPC channel is only used to ask the child to shut down. Disconnect it
+	// as part of the handshake so the test's control channel cannot outlive the
+	// server itself and keep Node 22 CI workers alive after the suite finishes.
+	if (typeof process.disconnect === "function") {
+		process.disconnect();
+	}
 });

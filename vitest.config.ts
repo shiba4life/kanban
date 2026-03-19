@@ -17,6 +17,10 @@ function shouldSerializeNode22CiFiles(): boolean {
 	return majorVersion !== null && majorVersion >= 22;
 }
 
+function resolveCiPool(): "forks" | "threads" {
+	return shouldSerializeNode22CiFiles() ? "threads" : "forks";
+}
+
 export default defineConfig({
 	resolve: {
 		alias: [
@@ -35,13 +39,19 @@ export default defineConfig({
 		environment: "node",
 		globalSetup: ["./test/vitest-global-teardown.ts"],
 		reporters: ["default", vitestNode22CiReporter],
-		// Node 22 CI hangs before `onTestRunEnd` with live `MessagePort` handles.
-		// Serializing files there helps distinguish worker-pool shutdown issues
-		// from test-level leaks while keeping local runs and Node 20 unchanged.
+		// Node 22 CI has shown two separate Vitest worker-pool shutdown failures:
+		// `forks` can stall mid-run with a live child process, and successful runs
+		// can also finish with a referenced `MessagePort`. Serialize files there
+		// and switch to a single `threads` worker to avoid the fork-pool hang while
+		// keeping local runs and Node 20 unchanged.
+		pool: resolveCiPool(),
 		fileParallelism: !shouldSerializeNode22CiFiles(),
 		poolOptions: {
 			forks: {
-				singleFork: shouldSerializeNode22CiFiles(),
+				singleFork: false,
+			},
+			threads: {
+				singleThread: shouldSerializeNode22CiFiles(),
 			},
 		},
 		exclude: ["apps/**", "web-ui/**", "third_party/**", "**/node_modules/**", "**/dist/**", ".worktrees/**"],

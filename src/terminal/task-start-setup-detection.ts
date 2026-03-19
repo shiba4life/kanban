@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { RuntimeAgentId, RuntimeTaskStartSetupAvailability } from "../core/api-contract.js";
+import { getUserHomePath } from "../core/home-path.js";
 import { isBinaryAvailableOnPath } from "./command-discovery.js";
 import { getOpenCodeConfigPathCandidates } from "./opencode-paths.js";
 
@@ -105,7 +105,7 @@ function escapeRegex(value: string): string {
 }
 
 function hasCodexMcpServer(serverName: string): boolean {
-	const raw = readFirstExistingFile([join(homedir(), ".codex", "config.toml")]);
+	const raw = readFirstExistingFile([join(getUserHomePath(), ".codex", "config.toml")]);
 	if (!raw) {
 		return false;
 	}
@@ -114,7 +114,7 @@ function hasCodexMcpServer(serverName: string): boolean {
 }
 
 function hasClaudeMcpServer(serverName: string): boolean {
-	const parsed = parseJsonLike(readFirstExistingFile([join(homedir(), ".claude.json")]));
+	const parsed = parseJsonLike(readFirstExistingFile([join(getUserHomePath(), ".claude.json")]));
 	if (!parsed) {
 		return false;
 	}
@@ -145,7 +145,7 @@ function hasAgentMcpServer(agentId: RuntimeAgentId, serverName: "linear"): boole
 			return hasClaudeMcpServer(serverName);
 		case "cline":
 			return hasJsonObjectKey(
-				readFirstExistingFile([join(homedir(), ".cline", "data", "settings", "cline_mcp_settings.json")]),
+				readFirstExistingFile([join(getUserHomePath(), ".cline", "data", "settings", "cline_mcp_settings.json")]),
 				"mcpServers",
 				serverName,
 			);
@@ -153,13 +153,13 @@ function hasAgentMcpServer(agentId: RuntimeAgentId, serverName: "linear"): boole
 			return hasCodexMcpServer(serverName);
 		case "droid":
 			return hasJsonObjectKey(
-				readFirstExistingFile([join(homedir(), ".factory", "mcp.json")]),
+				readFirstExistingFile([join(getUserHomePath(), ".factory", "mcp.json")]),
 				"mcpServers",
 				serverName,
 			);
 		case "gemini":
 			return hasJsonObjectKey(
-				readFirstExistingFile([join(homedir(), ".gemini", "settings.json")]),
+				readFirstExistingFile([join(getUserHomePath(), ".gemini", "settings.json")]),
 				"mcpServers",
 				serverName,
 			);

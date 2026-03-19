@@ -1,5 +1,6 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
+
+import { getUserHomePath } from "../core/home-path.js";
 
 interface OpenCodePathCandidatesInput {
 	explicitPath?: string | undefined;
@@ -31,7 +32,7 @@ function appendFromEnv(paths: string[], envValue: string | undefined, ...segment
 
 export function getOpenCodeConfigPathCandidates(input: OpenCodePathCandidatesInput = {}): string[] {
 	const env = input.env ?? process.env;
-	const homePath = input.homePath ?? homedir();
+	const homePath = input.homePath ?? getUserHomePath(env);
 	const candidates: string[] = [];
 
 	const explicit = input.explicitPath?.trim();
@@ -62,9 +63,11 @@ export function getOpenCodeConfigPathCandidates(input: OpenCodePathCandidatesInp
 	return uniquePaths(candidates);
 }
 
-export function getOpenCodeModelStatePathCandidates(input: Omit<OpenCodePathCandidatesInput, "explicitPath"> = {}): string[] {
+export function getOpenCodeModelStatePathCandidates(
+	input: Omit<OpenCodePathCandidatesInput, "explicitPath"> = {},
+): string[] {
 	const env = input.env ?? process.env;
-	const homePath = input.homePath ?? homedir();
+	const homePath = input.homePath ?? getUserHomePath(env);
 	const candidates: string[] = [];
 
 	appendFromEnv(candidates, env.LOCALAPPDATA, "opencode", "state", "model.json");
@@ -76,7 +79,7 @@ export function getOpenCodeModelStatePathCandidates(input: Omit<OpenCodePathCand
 
 export function getOpenCodeAuthPathCandidates(input: Omit<OpenCodePathCandidatesInput, "explicitPath"> = {}): string[] {
 	const env = input.env ?? process.env;
-	const homePath = input.homePath ?? homedir();
+	const homePath = input.homePath ?? getUserHomePath(env);
 	const candidates: string[] = [];
 
 	appendFromEnv(candidates, env.APPDATA, "opencode", "auth.json");

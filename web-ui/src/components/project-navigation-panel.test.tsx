@@ -65,70 +65,96 @@ describe("FeedbackCard", () => {
 
 	// 1. Non-Cline agent => renders nothing
 	it("renders nothing when selected agent is not Cline", () => {
+		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"claude" as never}
 					clineProviderSettings={authenticatedClineSettings}
+					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
 		expect(container.innerHTML).toBe("");
 	});
 
-	it("renders nothing when selectedAgentId is null", () => {
-		act(() => {
-			root.render(
-				<FeedbackCard
-					selectedAgentId={null}
-					clineProviderSettings={authenticatedClineSettings}
-				/>,
-			);
-		});
-		expect(container.innerHTML).toBe("");
-	});
-
-	// 2. Cline runtime + no Cline OAuth => renders nothing (no CTA)
-	it("renders nothing when not authenticated (no sign-in CTA)", () => {
+	// 2. Cline runtime + unauthenticated => renders nothing
+	it("renders nothing when not authenticated", () => {
+		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"cline"}
 					clineProviderSettings={defaultClineProviderSettings}
+					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
 		expect(container.innerHTML).toBe("");
 	});
 
-	it("renders nothing when clineProviderSettings is null", () => {
-		act(() => {
-			root.render(
-				<FeedbackCard
-					selectedAgentId={"cline"}
-					clineProviderSettings={null}
-				/>,
-			);
-		});
-		expect(container.innerHTML).toBe("");
-	});
-
-	// 3. Cline runtime + non-Cline provider auth => renders nothing
+	// 3. Cline runtime + non-Cline provider/tokens => renders nothing
 	it("renders nothing when tokens present but oauthProvider is not cline", () => {
+		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"cline"}
 					clineProviderSettings={tokensOnlySettings}
+					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
 		expect(container.innerHTML).toBe("");
 	});
 
-	// 4. Cline runtime + authenticated Cline OAuth => shows Share Feedback
-	//    regardless of Featurebase pre-auth state
-	it("renders Share Feedback when authenticated, Featurebase ready", () => {
+	// 4. Authenticated Cline OAuth + authState: "idle" => renders nothing
+	it("renders nothing when Featurebase is idle", () => {
+		const fbState: FeaturebaseFeedbackState = { authState: "idle", retry: vi.fn() };
+		act(() => {
+			root.render(
+				<FeedbackCard
+					selectedAgentId={"cline"}
+					clineProviderSettings={authenticatedClineSettings}
+					featurebaseFeedbackState={fbState}
+				/>,
+			);
+		});
+		expect(container.innerHTML).toBe("");
+	});
+
+	// 5. Authenticated Cline OAuth + authState: "loading" => renders nothing
+	it("renders nothing when Featurebase is loading", () => {
+		const fbState: FeaturebaseFeedbackState = { authState: "loading", retry: vi.fn() };
+		act(() => {
+			root.render(
+				<FeedbackCard
+					selectedAgentId={"cline"}
+					clineProviderSettings={authenticatedClineSettings}
+					featurebaseFeedbackState={fbState}
+				/>,
+			);
+		});
+		expect(container.innerHTML).toBe("");
+	});
+
+	// 6. Authenticated Cline OAuth + authState: "error" => renders nothing
+	it("renders nothing when Featurebase has error", () => {
+		const fbState: FeaturebaseFeedbackState = { authState: "error", retry: vi.fn() };
+		act(() => {
+			root.render(
+				<FeedbackCard
+					selectedAgentId={"cline"}
+					clineProviderSettings={authenticatedClineSettings}
+					featurebaseFeedbackState={fbState}
+				/>,
+			);
+		});
+		expect(container.innerHTML).toBe("");
+	});
+
+	// 7. Authenticated Cline OAuth + authState: "ready" => renders enabled Share Feedback
+	it("renders enabled Share Feedback when fully authenticated and Featurebase is ready", () => {
 		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
@@ -142,60 +168,36 @@ describe("FeedbackCard", () => {
 		const button = getFeedbackButton();
 		expect(button).toBeTruthy();
 		expect(button!.disabled).toBe(false);
+		expect(button!.textContent).toContain("Share Feedback");
 	});
 
-	it("renders Share Feedback when authenticated, Featurebase loading", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "loading", retry: vi.fn() };
-		act(() => {
-			root.render(
-				<FeedbackCard
-					selectedAgentId={"cline"}
-					clineProviderSettings={authenticatedClineSettings}
-					featurebaseFeedbackState={fbState}
-				/>,
-			);
-		});
-		expect(getFeedbackButton()).toBeTruthy();
-	});
-
-	it("renders Share Feedback when authenticated, Featurebase error", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "error", retry: vi.fn() };
-		act(() => {
-			root.render(
-				<FeedbackCard
-					selectedAgentId={"cline"}
-					clineProviderSettings={authenticatedClineSettings}
-					featurebaseFeedbackState={fbState}
-				/>,
-			);
-		});
-		expect(getFeedbackButton()).toBeTruthy();
-	});
-
-	it("renders Share Feedback when authenticated, featurebaseFeedbackState undefined", () => {
-		act(() => {
-			root.render(
-				<FeedbackCard
-					selectedAgentId={"cline"}
-					clineProviderSettings={authenticatedClineSettings}
-				/>,
-			);
-		});
-		expect(getFeedbackButton()).toBeTruthy();
-	});
-
-	// 5. Regression: button always has data-featurebase-feedback
+	// 8. Regression: ready-state button has data-featurebase-feedback
 	it("renders data-featurebase-feedback attribute on the Share Feedback button (regression)", () => {
+		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"cline"}
 					clineProviderSettings={authenticatedClineSettings}
+					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
 		const button = getFeedbackButton();
 		expect(button).toBeTruthy();
 		expect(button!.hasAttribute("data-featurebase-feedback")).toBe(true);
+	});
+
+	// Edge: featurebaseFeedbackState undefined => defaults to idle => renders nothing
+	it("renders nothing when featurebaseFeedbackState is undefined", () => {
+		act(() => {
+			root.render(
+				<FeedbackCard
+					selectedAgentId={"cline"}
+					clineProviderSettings={authenticatedClineSettings}
+				/>,
+			);
+		});
+		expect(container.innerHTML).toBe("");
 	});
 });

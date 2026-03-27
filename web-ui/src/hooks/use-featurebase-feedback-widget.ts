@@ -8,6 +8,12 @@ const FEATUREBASE_SDK_ID = "featurebase-sdk";
 const FEATUREBASE_SDK_SRC = "https://do.featurebase.app/js/sdk.js";
 const FEATUREBASE_ORGANIZATION = "cline";
 
+/**
+ * Bounded retry delays (ms) after the initial attempt.
+ * After these are exhausted the hook stays in "error".
+ */
+export const RETRY_DELAYS = [2_000, 5_000] as const;
+
 // ---------------------------------------------------------------------------
 // Featurebase auth readiness state machine
 // ---------------------------------------------------------------------------
@@ -112,6 +118,15 @@ export function useFeaturebaseFeedbackWidget(input: {
 
 	// Track the latest attempt so we can cancel stale ones.
 	const attemptRef = useRef(0);
+	// Track the pending retry timer so we can cancel it on cleanup.
+	const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	function clearRetryTimer() {
+		if (retryTimerRef.current !== null) {
+			clearTimeout(retryTimerRef.current);
+			retryTimerRef.current = null;
+		}
+	}
 
 	// Initialize the Featurebase feedback widget once on mount.
 	useEffect(() => {
@@ -141,13 +156,28 @@ export function useFeaturebaseFeedbackWidget(input: {
 
 	// Core pre-identify routine, callable from the effect and from retry().
 	const runPreIdentify = useCallback(
-		(attempt: number) => {
+		(attempt: number, retryIndex: number) => {
 			if (!workspaceId || !isAuthenticated) {
 				return;
 			}
 
 			setAuthState("loading");
 			const win = window as FeaturebaseWindow;
+
+			const scheduleRetry = () => {
+				if (attemptRef.current !== attempt) {
+					return;
+				}
+				if (retryIndex < RETRY_DELAYS.length) {
+					const delay = RETRY_DELAYS[retryIndex];
+					retryTimerRef.current = setTimeout(() => {
+						if (attemptRef.current !== attempt) {
+							return;
+						}
+						runPreIdentify(attempt, retryIndex + 1);
+					}, delay);
+				}
+			};
 
 			void ensureFeaturebaseSdkLoaded()
 				.then(async () => {
@@ -171,8 +201,10 @@ export function useFeaturebaseFeedbackWidget(input: {
 							}
 							if (error) {
 								setAuthState("error");
+								scheduleRetry();
 								return;
 							}
+							clearRetryTimer();
 							setAuthState("ready");
 						},
 					);
@@ -182,13 +214,17 @@ export function useFeaturebaseFeedbackWidget(input: {
 						return;
 					}
 					setAuthState("error");
+					scheduleRetry();
 				});
 		},
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- retryTimerRef is a ref
 		[workspaceId, isAuthenticated],
 	);
 
 	// Pre-identify whenever auth state or workspace changes.
 	useEffect(() => {
+		clearRetryTimer();
+
 		if (!workspaceId || !isAuthenticated) {
 			// Reset to idle when the user signs out or workspace disappears.
 			setAuthState("idle");
@@ -196,18 +232,20 @@ export function useFeaturebaseFeedbackWidget(input: {
 		}
 
 		const attempt = ++attemptRef.current;
-		runPreIdentify(attempt);
+		runPreIdentify(attempt, 0);
 
 		return () => {
-			// Cancel this attempt so stale callbacks are ignored.
+			// Cancel this attempt and any pending retries.
 			attemptRef.current++;
+			clearRetryTimer();
 		};
 	}, [workspaceId, isAuthenticated, runPreIdentify]);
 
-	// Retry: bump the attempt counter and re-run.
+	// Retry: bump the attempt counter and re-run from scratch.
 	const retry = useCallback(() => {
+		clearRetryTimer();
 		const attempt = ++attemptRef.current;
-		runPreIdentify(attempt);
+		runPreIdentify(attempt, 0);
 	}, [runPreIdentify]);
 
 	return { authState, retry };

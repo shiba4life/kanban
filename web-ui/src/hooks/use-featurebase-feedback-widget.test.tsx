@@ -38,7 +38,6 @@ async function importFeaturebaseModule() {
 	vi.doMock("@/runtime/runtime-config-query", () => ({
 		fetchFeaturebaseToken: fetchFeaturebaseTokenMock,
 	}));
-	// Re-export the real isClineOauthAuthenticated so the hook resolves it.
 	const nativeAgent = await import("@/runtime/native-agent");
 	vi.doMock("@/runtime/native-agent", () => ({
 		...nativeAgent,
@@ -175,7 +174,7 @@ describe("useFeaturebaseFeedbackWidget", () => {
 		expect(fetchFeaturebaseTokenMock).not.toHaveBeenCalled();
 	});
 
-	it("transitions to ready on successful pre-identify", async () => {
+	it("transitions to ready on successful pre-identify (no retries scheduled)", async () => {
 		const { module, fetchFeaturebaseTokenMock } = await importFeaturebaseModule();
 		fetchFeaturebaseTokenMock.mockResolvedValue({ featurebaseJwt: "jwt-abc" });
 		const featurebaseMock = vi.fn();
@@ -197,22 +196,23 @@ describe("useFeaturebaseFeedbackWidget", () => {
 			await Promise.resolve();
 		});
 
-		// identify should have been called
 		const identifyCall = featurebaseMock.mock.calls.find((call: unknown[]) => call[0] === "identify");
 		expect(identifyCall).toBeTruthy();
 
-		// Simulate the identify callback succeeding
-		const identifyCallback = identifyCall?.[2] as ((error: unknown) => void) | undefined;
 		await act(async () => {
-			identifyCallback?.(null);
+			(identifyCall?.[2] as (error: unknown) => void)?.(null);
 			await Promise.resolve();
 		});
 
 		expect(hookResult!.authState).toBe("ready");
+		// Only one token fetch — no retries needed
+		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("transitions to error on token fetch failure", async () => {
+	it("transitions to error on token fetch failure then auto-retries", async () => {
+		vi.useFakeTimers();
 		const { module, fetchFeaturebaseTokenMock } = await importFeaturebaseModule();
+		// All attempts fail
 		fetchFeaturebaseTokenMock.mockRejectedValue(new Error("Network error"));
 		const featurebaseMock = vi.fn();
 		mockSdkLoad(featurebaseMock);
@@ -233,11 +233,95 @@ describe("useFeaturebaseFeedbackWidget", () => {
 			await Promise.resolve();
 		});
 
+		// Initial attempt failed
 		expect(hookResult!.authState).toBe("error");
-		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledWith("workspace-1");
+		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(1);
+
+		// Advance past first retry delay (2s)
+		await act(async () => {
+			vi.advanceTimersByTime(2_000);
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(2);
+		expect(hookResult!.authState).toBe("error");
+
+		// Advance past second retry delay (5s)
+		await act(async () => {
+			vi.advanceTimersByTime(5_000);
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		// 3 total attempts (initial + 2 retries), then stops
+		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(3);
+		expect(hookResult!.authState).toBe("error");
+
+		// No more retries after that
+		await act(async () => {
+			vi.advanceTimersByTime(30_000);
+			await Promise.resolve();
+		});
+		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(3);
 	});
 
-	it("transitions to error on identify callback error without showing a toast (silent degradation)", async () => {
+	it("first attempt fails, auto-retry succeeds => becomes ready", async () => {
+		vi.useFakeTimers();
+		const { module, fetchFeaturebaseTokenMock } = await importFeaturebaseModule();
+		// First call fails, second succeeds
+		fetchFeaturebaseTokenMock
+			.mockRejectedValueOnce(new Error("Transient error"))
+			.mockResolvedValueOnce({ featurebaseJwt: "jwt-retry-ok" });
+		const featurebaseMock = vi.fn();
+		mockSdkLoad(featurebaseMock);
+
+		let hookResult: FeaturebaseFeedbackState | null = null;
+		function HookHarness(): null {
+			hookResult = module.useFeaturebaseFeedbackWidget({
+				workspaceId: "workspace-1",
+				clineProviderSettings: authenticatedClineSettings,
+			});
+			return null;
+		}
+
+		await act(async () => {
+			root.render(<HookHarness />);
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(hookResult!.authState).toBe("error");
+		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(1);
+
+		// Advance past first retry delay (2s)
+		await act(async () => {
+			vi.advanceTimersByTime(2_000);
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(2);
+
+		// Identify should have been called on the retry
+		const identifyCalls = featurebaseMock.mock.calls.filter((call: unknown[]) => call[0] === "identify");
+		expect(identifyCalls.length).toBeGreaterThanOrEqual(1);
+
+		// Simulate identify success
+		const latestIdentify = identifyCalls[identifyCalls.length - 1];
+		await act(async () => {
+			(latestIdentify?.[2] as (error: unknown) => void)?.(null);
+			await Promise.resolve();
+		});
+
+		expect(hookResult!.authState).toBe("ready");
+	});
+
+	it("transitions to error on identify callback error (silent degradation)", async () => {
 		const { module, fetchFeaturebaseTokenMock } = await importFeaturebaseModule();
 		fetchFeaturebaseTokenMock.mockResolvedValue({ featurebaseJwt: "jwt-abc" });
 		const featurebaseMock = vi.fn();
@@ -260,19 +344,16 @@ describe("useFeaturebaseFeedbackWidget", () => {
 		});
 
 		const identifyCall = featurebaseMock.mock.calls.find((call: unknown[]) => call[0] === "identify");
-		const identifyCallback = identifyCall?.[2] as ((error: unknown) => void) | undefined;
 		await act(async () => {
-			identifyCallback?.(new Error("Featurebase error"));
+			(identifyCall?.[2] as (error: unknown) => void)?.(new Error("Featurebase error"));
 			await Promise.resolve();
 		});
 
 		expect(hookResult!.authState).toBe("error");
-		// Silent degradation: no toast shown for background pre-identify failure
 	});
 
-	it("retry re-runs pre-identify after error", async () => {
+	it("retry() re-runs pre-identify after error", async () => {
 		const { module, fetchFeaturebaseTokenMock } = await importFeaturebaseModule();
-		// First call fails, second succeeds
 		fetchFeaturebaseTokenMock
 			.mockRejectedValueOnce(new Error("Network error"))
 			.mockResolvedValueOnce({ featurebaseJwt: "jwt-retry" });
@@ -296,9 +377,7 @@ describe("useFeaturebaseFeedbackWidget", () => {
 		});
 
 		expect(hookResult!.authState).toBe("error");
-		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(1);
 
-		// Call retry
 		await act(async () => {
 			hookResult!.retry();
 			await Promise.resolve();
@@ -307,9 +386,6 @@ describe("useFeaturebaseFeedbackWidget", () => {
 		});
 
 		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(2);
-		// After successful retry, identify is called
-		const identifyCalls = featurebaseMock.mock.calls.filter((call: unknown[]) => call[0] === "identify");
-		expect(identifyCalls.length).toBeGreaterThanOrEqual(1);
 	});
 
 	it("does not pre-identify when workspaceId is null", async () => {
@@ -334,5 +410,44 @@ describe("useFeaturebaseFeedbackWidget", () => {
 
 		expect(hookResult!.authState).toBe("idle");
 		expect(fetchFeaturebaseTokenMock).not.toHaveBeenCalled();
+	});
+
+	it("cancels retry timers on unmount", async () => {
+		vi.useFakeTimers();
+		const { module, fetchFeaturebaseTokenMock } = await importFeaturebaseModule();
+		fetchFeaturebaseTokenMock.mockRejectedValue(new Error("Network error"));
+		const featurebaseMock = vi.fn();
+		mockSdkLoad(featurebaseMock);
+
+		function HookHarness(): null {
+			module.useFeaturebaseFeedbackWidget({
+				workspaceId: "workspace-1",
+				clineProviderSettings: authenticatedClineSettings,
+			});
+			return null;
+		}
+
+		await act(async () => {
+			root.render(<HookHarness />);
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(1);
+
+		// Unmount before retry fires
+		await act(async () => {
+			root.render(<></>);
+			await Promise.resolve();
+		});
+
+		// Advance timers — retry should NOT fire
+		await act(async () => {
+			vi.advanceTimersByTime(10_000);
+			await Promise.resolve();
+		});
+
+		expect(fetchFeaturebaseTokenMock).toHaveBeenCalledTimes(1);
 	});
 });

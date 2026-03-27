@@ -142,7 +142,7 @@ export default function App(): ReactElement {
 	const settingsWorkspaceId = navigationCurrentProjectId ?? currentProjectId;
 	const { config: settingsRuntimeProjectConfig, refresh: refreshSettingsRuntimeProjectConfig } =
 		useRuntimeProjectConfig(settingsWorkspaceId);
-	useFeaturebaseFeedbackWidget({
+	const featurebaseFeedbackState = useFeaturebaseFeedbackWidget({
 		workspaceId: settingsWorkspaceId,
 		clineProviderSettings: settingsRuntimeProjectConfig?.clineProviderSettings ?? null,
 	});
@@ -775,6 +775,7 @@ export default function App(): ReactElement {
 									onOpenSettings={handleOpenSettings}
 								selectedAgentId={settingsRuntimeProjectConfig?.selectedAgentId ?? null}
 									clineProviderSettings={settingsRuntimeProjectConfig?.clineProviderSettings ?? null}
+									featurebaseFeedbackState={featurebaseFeedbackState}
 				/>
 			) : null}
 			<div className="flex flex-col flex-1 min-w-0 overflow-hidden">

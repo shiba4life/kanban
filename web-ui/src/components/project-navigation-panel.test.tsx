@@ -34,14 +34,6 @@ const tokensOnlySettings: RuntimeClineProviderSettings = {
 	oauthRefreshTokenConfigured: true,
 };
 
-const accessOnlyNoRefreshSettings: RuntimeClineProviderSettings = {
-	...defaultClineProviderSettings,
-	oauthProvider: "cline",
-	oauthAccessTokenConfigured: true,
-	oauthRefreshTokenConfigured: false,
-	oauthAccountId: "acc-1",
-};
-
 describe("FeedbackCard", () => {
 	let container: HTMLDivElement;
 	let root: Root;
@@ -73,13 +65,11 @@ describe("FeedbackCard", () => {
 
 	// 1. Non-Cline agent => renders nothing
 	it("renders nothing when selected agent is not Cline", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"claude" as never}
 					clineProviderSettings={authenticatedClineSettings}
-					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
@@ -87,28 +77,24 @@ describe("FeedbackCard", () => {
 	});
 
 	it("renders nothing when selectedAgentId is null", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={null}
 					clineProviderSettings={authenticatedClineSettings}
-					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
 		expect(container.innerHTML).toBe("");
 	});
 
-	// 2. Cline runtime + no Cline OAuth auth => renders nothing (no CTA)
+	// 2. Cline runtime + no Cline OAuth => renders nothing (no CTA)
 	it("renders nothing when not authenticated (no sign-in CTA)", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"cline"}
 					clineProviderSettings={defaultClineProviderSettings}
-					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
@@ -116,13 +102,11 @@ describe("FeedbackCard", () => {
 	});
 
 	it("renders nothing when clineProviderSettings is null", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"cline"}
 					clineProviderSettings={null}
-					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
@@ -131,35 +115,36 @@ describe("FeedbackCard", () => {
 
 	// 3. Cline runtime + non-Cline provider auth => renders nothing
 	it("renders nothing when tokens present but oauthProvider is not cline", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"cline"}
 					clineProviderSettings={tokensOnlySettings}
-					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
 		expect(container.innerHTML).toBe("");
 	});
 
-	it("renders nothing when oauthProvider=cline but refresh token is missing", () => {
+	// 4. Cline runtime + authenticated Cline OAuth => shows Share Feedback
+	//    regardless of Featurebase pre-auth state
+	it("renders Share Feedback when authenticated, Featurebase ready", () => {
 		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"cline"}
-					clineProviderSettings={accessOnlyNoRefreshSettings}
+					clineProviderSettings={authenticatedClineSettings}
 					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
-		expect(container.innerHTML).toBe("");
+		const button = getFeedbackButton();
+		expect(button).toBeTruthy();
+		expect(button!.disabled).toBe(false);
 	});
 
-	// 4. Cline runtime + authenticated Cline OAuth + Featurebase NOT ready => renders nothing
-	it("renders nothing when Featurebase is loading", () => {
+	it("renders Share Feedback when authenticated, Featurebase loading", () => {
 		const fbState: FeaturebaseFeedbackState = { authState: "loading", retry: vi.fn() };
 		act(() => {
 			root.render(
@@ -170,24 +155,10 @@ describe("FeedbackCard", () => {
 				/>,
 			);
 		});
-		expect(container.innerHTML).toBe("");
+		expect(getFeedbackButton()).toBeTruthy();
 	});
 
-	it("renders nothing when Featurebase is idle", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "idle", retry: vi.fn() };
-		act(() => {
-			root.render(
-				<FeedbackCard
-					selectedAgentId={"cline"}
-					clineProviderSettings={authenticatedClineSettings}
-					featurebaseFeedbackState={fbState}
-				/>,
-			);
-		});
-		expect(container.innerHTML).toBe("");
-	});
-
-	it("renders nothing when Featurebase has error", () => {
+	it("renders Share Feedback when authenticated, Featurebase error", () => {
 		const fbState: FeaturebaseFeedbackState = { authState: "error", retry: vi.fn() };
 		act(() => {
 			root.render(
@@ -198,10 +169,10 @@ describe("FeedbackCard", () => {
 				/>,
 			);
 		});
-		expect(container.innerHTML).toBe("");
+		expect(getFeedbackButton()).toBeTruthy();
 	});
 
-	it("renders nothing when featurebaseFeedbackState is undefined", () => {
+	it("renders Share Feedback when authenticated, featurebaseFeedbackState undefined", () => {
 		act(() => {
 			root.render(
 				<FeedbackCard
@@ -210,41 +181,19 @@ describe("FeedbackCard", () => {
 				/>,
 			);
 		});
-		expect(container.innerHTML).toBe("");
+		expect(getFeedbackButton()).toBeTruthy();
 	});
 
-	// 5. Cline runtime + authenticated Cline OAuth + Featurebase ready => Share Feedback
-	it("renders enabled Share Feedback button when fully authenticated and Featurebase is ready", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
-		act(() => {
-			root.render(
-				<FeedbackCard
-					selectedAgentId={"cline"}
-					clineProviderSettings={authenticatedClineSettings}
-					featurebaseFeedbackState={fbState}
-				/>,
-			);
-		});
-
-		const button = getFeedbackButton();
-		expect(button).toBeTruthy();
-		expect(button!.disabled).toBe(false);
-		expect(button!.textContent).toContain("Share Feedback");
-	});
-
-	// 6. Regression: ready-state button has data-featurebase-feedback
+	// 5. Regression: button always has data-featurebase-feedback
 	it("renders data-featurebase-feedback attribute on the Share Feedback button (regression)", () => {
-		const fbState: FeaturebaseFeedbackState = { authState: "ready", retry: vi.fn() };
 		act(() => {
 			root.render(
 				<FeedbackCard
 					selectedAgentId={"cline"}
 					clineProviderSettings={authenticatedClineSettings}
-					featurebaseFeedbackState={fbState}
 				/>,
 			);
 		});
-
 		const button = getFeedbackButton();
 		expect(button).toBeTruthy();
 		expect(button!.hasAttribute("data-featurebase-feedback")).toBe(true);

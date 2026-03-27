@@ -430,11 +430,11 @@ export function FeedbackCard({
 }): React.ReactElement | null {
 	const isClineAgent = isNativeClineAgentSelected(selectedAgentId);
 	const isAuthenticated = isClineOauthAuthenticated(clineProviderSettings);
-	const isReady = (featurebaseFeedbackState?.authState ?? "idle") === "ready";
 
-	// Only show for authenticated Cline OAuth users when Featurebase is ready.
-	// Everything else renders nothing — no CTAs, no disabled buttons.
-	if (!isClineAgent || !isAuthenticated || !isReady) {
+	// Only show for authenticated Cline OAuth users.
+	// Featurebase JWT pre-identify is best-effort; the widget attaches via the
+	// data-featurebase-feedback attribute and works without pre-identification.
+	if (!isClineAgent || !isAuthenticated) {
 		return null;
 	}
 

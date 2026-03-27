@@ -3,11 +3,11 @@
 // history, and subscribe to summaries and chat events without knowing SDK
 // host, repository, or event-adapter details.
 import type {
+	RuntimeClineReasoningEffort,
 	RuntimeTaskImage,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
-	RuntimeClineReasoningEffort,
 } from "../core/api-contract.js";
 import { isHomeAgentSessionId } from "../core/home-agent-session.js";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt.js";
@@ -36,6 +36,7 @@ import {
 	setOrCreateAssistantMessage,
 	updateSummary,
 } from "./cline-session-state.js";
+import { SDK_DEFAULT_MODEL_ID, SDK_DEFAULT_PROVIDER_ID } from "./sdk-provider-boundary.js";
 import { resolveClineSdkSystemPrompt } from "./sdk-runtime-boundary.js";
 
 export type { ClineTaskMessage } from "./cline-session-state.js";
@@ -225,8 +226,8 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			return cloneSummary(existing.summary);
 		}
 
-		const providerId = request.providerId?.trim() || "anthropic";
-		const modelId = request.modelId?.trim() || "claude-sonnet-4-6";
+		const providerId = request.providerId?.trim().toLowerCase() || SDK_DEFAULT_PROVIDER_ID;
+		const modelId = request.modelId?.trim() || SDK_DEFAULT_MODEL_ID;
 		const resolvedMode: RuntimeTaskSessionMode = request.mode ?? "act";
 		const persistedResumeSnapshot = request.resumeFromTrash
 			? await this.sessionRuntime.readPersistedTaskSession(request.taskId).catch(() => null)

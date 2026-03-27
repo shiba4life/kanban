@@ -207,8 +207,8 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 						lastStartRequestByTaskId.set(taskId, {
 							taskId,
 							cwd: persistedCwd || persistedWorkspaceRoot,
-							providerId: typeof record?.provider === "string" ? record.provider : "anthropic",
-							modelId: typeof record?.model === "string" ? record.model : "claude-sonnet-4-6",
+							providerId: typeof record?.provider === "string" ? record.provider : "cline",
+							modelId: typeof record?.model === "string" ? record.model : "anthropic/claude-sonnet-4.6",
 							mode: undefined,
 							apiKey: undefined,
 							baseUrl: undefined,
@@ -472,7 +472,7 @@ describe("InMemoryClineTaskSessionService", () => {
 		});
 	});
 
-	it("defaults to anthropic provider when provider is not explicitly configured", async () => {
+	it("defaults to the SDK cline provider when provider is not explicitly configured", async () => {
 		const { service, runtime } = createTrackedService();
 
 		await service.startTaskSession({
@@ -486,7 +486,7 @@ describe("InMemoryClineTaskSessionService", () => {
 
 		expect(runtime.startTaskSessionMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				providerId: "anthropic",
+				providerId: "cline",
 				systemPrompt: expect.stringContaining("You are Cline, an AI coding agent."),
 			}),
 		);
@@ -843,6 +843,9 @@ describe("InMemoryClineTaskSessionService", () => {
 			taskId: "task-1",
 			cwd: "/tmp/worktree",
 			prompt: "Initial prompt",
+		});
+		await vi.waitFor(() => {
+			expect(runtime.startTaskSessionMock).toHaveBeenCalledTimes(1);
 		});
 
 		runtimeSetup.resolvePromptMock.mockImplementation((prompt: string) => `workflow:${prompt}`);

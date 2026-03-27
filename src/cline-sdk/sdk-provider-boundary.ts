@@ -1,9 +1,12 @@
 // Centralize direct SDK provider imports here.
 // The rest of Kanban should talk to the SDK through local service modules so
 // auth, catalog, and provider-settings behavior stay behind one boundary.
+
+import { type CreateMcpToolsOptions, createMcpTools, type Tool } from "@clinebot/agents";
 import {
 	ClineAccountService,
-	ClineAccountUser,
+	type ClineAccountUser,
+	type ClineOrganization,
 	getValidClineCredentials,
 	getValidOcaCredentials,
 	getValidOpenAICodexCredentials,
@@ -12,13 +15,13 @@ import {
 	loginOcaOAuth,
 	loginOpenAICodex,
 	ProviderSettingsManager,
-	ClineOrganization,
 } from "@clinebot/core/node";
-import { LlmsModels as llmsModels, LlmsProviders } from "@clinebot/llms";
-import { createMcpTools, type CreateMcpToolsOptions, type Tool } from "@clinebot/agents";
+import { LlmsProviders, LlmsModels as llmsModels } from "@clinebot/llms";
 
 export type ManagedClineOauthProviderId = "cline" | "oca" | "openai-codex";
 export type SdkReasoningEffort = NonNullable<LlmsProviders.ReasoningSettings["effort"]>;
+export const SDK_DEFAULT_PROVIDER_ID = "cline";
+export const SDK_DEFAULT_MODEL_ID = llmsModels.CLINE_DEFAULT_MODEL;
 
 export interface ManagedOauthCredentials {
 	access: string;
@@ -37,6 +40,8 @@ export interface SdkProviderCatalogItem {
 	id: string;
 	name: string;
 	defaultModelId?: string;
+	baseUrl?: string;
+	env?: string[];
 	capabilities?: string[];
 }
 
@@ -107,7 +112,9 @@ export interface SdkMcpManagerOptions {
 export interface SdkMcpManager {
 	registerServer(registration: SdkMcpServerRegistration): Promise<void>;
 	listServers(): readonly SdkMcpServerSnapshot[];
-	listTools(serverName: string): Promise<readonly { name: string; description?: string; inputSchema: Record<string, unknown> }[]>;
+	listTools(
+		serverName: string,
+	): Promise<readonly { name: string; description?: string; inputSchema: Record<string, unknown> }[]>;
 	callTool(request: {
 		serverName: string;
 		toolName: string;
@@ -148,13 +155,10 @@ export async function refreshManagedOauthCredentials(input: {
 	oauthProvider?: string | null;
 }): Promise<ManagedOauthCredentials | null> {
 	if (input.providerId === "cline") {
-		const credentials = await getValidClineCredentials(
-			input.currentCredentials,
-			{
-				apiBaseUrl: input.baseUrl?.trim() || "https://api.cline.bot",
-				provider: input.oauthProvider?.trim() || undefined,
-			},
-		);
+		const credentials = await getValidClineCredentials(input.currentCredentials, {
+			apiBaseUrl: input.baseUrl?.trim() || "https://api.cline.bot",
+			provider: input.oauthProvider?.trim() || undefined,
+		});
 		return credentials ?? null;
 	}
 
@@ -167,9 +171,7 @@ export async function refreshManagedOauthCredentials(input: {
 		return credentials ?? null;
 	}
 
-	const credentials = await getValidOpenAICodexCredentials(
-		input.currentCredentials,
-	);
+	const credentials = await getValidOpenAICodexCredentials(input.currentCredentials);
 	return credentials ?? null;
 }
 
@@ -200,15 +202,11 @@ export async function loginManagedOauthProvider(input: {
 	});
 }
 
-export async function listSdkProviderCatalog(): Promise<
-	SdkProviderCatalogItem[]
-> {
+export async function listSdkProviderCatalog(): Promise<SdkProviderCatalogItem[]> {
 	return await llmsModels.getAllProviders();
 }
 
-export async function listSdkProviderModels(
-	providerId: string,
-): Promise<SdkProviderModelRecord> {
+export async function listSdkProviderModels(providerId: string): Promise<SdkProviderModelRecord> {
 	return await llmsModels.getModelsForProvider(providerId);
 }
 
@@ -218,27 +216,15 @@ export function supportsSdkModelThinking(modelInfo: LlmsProviders.ModelInfo): bo
 
 const providerManager = new ProviderSettingsManager();
 
-export function getSdkProviderSettings(
-	providerId: string,
-): SdkProviderSettings | null {
-	return (
-		(providerManager.getProviderSettings(providerId) as
-			| SdkProviderSettings
-			| undefined) ?? null
-	);
+export function getSdkProviderSettings(providerId: string): SdkProviderSettings | null {
+	return (providerManager.getProviderSettings(providerId) as SdkProviderSettings | undefined) ?? null;
 }
 
 export function getLastUsedSdkProviderSettings(): SdkProviderSettings | null {
-	return (
-		(providerManager.getLastUsedProviderSettings() as
-			| SdkProviderSettings
-			| undefined) ?? null
-	);
+	return (providerManager.getLastUsedProviderSettings() as SdkProviderSettings | undefined) ?? null;
 }
 
-export function saveSdkProviderSettings(
-	input: SaveSdkProviderSettingsInput,
-): void {
+export function saveSdkProviderSettings(input: SaveSdkProviderSettingsInput): void {
 	const settings: SdkProviderSettings = {
 		...input.settings,
 		provider: input.settings.provider.trim(),
@@ -282,11 +268,7 @@ export function saveSdkProviderSettings(
 				reasoning.effort = effort as SdkReasoningEffort;
 			}
 		}
-		if (
-			reasoning.enabled === undefined &&
-			reasoning.effort === undefined &&
-			reasoning.budgetTokens === undefined
-		) {
+		if (reasoning.enabled === undefined && reasoning.effort === undefined && reasoning.budgetTokens === undefined) {
 			delete settings.reasoning;
 		} else {
 			settings.reasoning = reasoning;
@@ -322,18 +304,18 @@ export async function createSdkMcpTools(options: SdkCreateMcpToolsOptions): Prom
 type ApiRequestParams = {
 	apiBaseUrl: string;
 	accessToken: string;
-}
+};
 
-export async function fetchSdkClineAccountProfile(input: ApiRequestParams): Promise<ClineAccountUser> {	
+export async function fetchSdkClineAccountProfile(input: ApiRequestParams): Promise<ClineAccountUser> {
 	const accountService = new ClineAccountService({
 		apiBaseUrl: input.apiBaseUrl,
 		getAuthToken: async () => input.accessToken,
 	});
 	const me = await accountService.fetchMe();
-	return me
+	return me;
 }
 
-export async function fetchSdkOrgData(input: ApiRequestParams & {organizatinId: string}): Promise<ClineOrganization> {
+export async function fetchSdkOrgData(input: ApiRequestParams & { organizatinId: string }): Promise<ClineOrganization> {
 	const accountService = new ClineAccountService({
 		apiBaseUrl: input.apiBaseUrl,
 		getAuthToken: async () => input.accessToken,

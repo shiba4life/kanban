@@ -2,8 +2,6 @@
 // Keep protocol-specific parsing here so the runtime and repository can stay
 // focused on lifecycle, storage, and task-facing orchestration.
 import type { RuntimeTaskSessionSummary } from "../core/api-contract.js";
-import { formatClineToolCallLabel, getClineToolCallDisplay } from "./cline-tool-call-display.js";
-import type { ClineSdkAgentEvent, ClineSdkSessionEvent } from "./sdk-runtime-boundary.js";
 import {
 	appendAssistantChunk,
 	appendReasoningChunk,
@@ -23,6 +21,8 @@ import {
 	startToolCallMessage,
 	updateSummary,
 } from "./cline-session-state.js";
+import { formatClineToolCallLabel, getClineToolCallDisplay } from "./cline-tool-call-display.js";
+import type { ClineSdkAgentEvent, ClineSdkSessionEvent } from "./sdk-runtime-boundary.js";
 
 function normalizePreviewText(value: string | null | undefined): string | null {
 	if (typeof value !== "string") {
@@ -159,6 +159,34 @@ function extractAgentErrorMessage(error: unknown): string | null {
 	return null;
 }
 
+function formatUsageSummary(
+	usage:
+		| {
+				inputTokens: number;
+				outputTokens: number;
+				cacheReadTokens?: number;
+				cacheWriteTokens?: number;
+				cost?: number;
+		  }
+		| null
+		| undefined,
+): string | null {
+	if (!usage) {
+		return null;
+	}
+	const parts = [`input=${usage.inputTokens ?? 0}`, `output=${usage.outputTokens ?? 0}`];
+	if ((usage.cacheReadTokens ?? 0) > 0) {
+		parts.push(`cache read=${usage.cacheReadTokens}`);
+	}
+	if ((usage.cacheWriteTokens ?? 0) > 0) {
+		parts.push(`cache write=${usage.cacheWriteTokens}`);
+	}
+	if (typeof usage.cost === "number" && Number.isFinite(usage.cost)) {
+		parts.push(`cost=$${usage.cost.toFixed(4)}`);
+	}
+	return parts.join(" • ");
+}
+
 export function extractClineSessionId(event: unknown): string | null {
 	const record = asRecord(event);
 	if (!record) {
@@ -178,8 +206,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 	const statusEvent = readStatusEvent(event);
 
 	if (agentEvent?.type === "error") {
-		const errorMessage =
-			"error" in agentEvent ? extractAgentErrorMessage(agentEvent.error) : null;
+		const errorMessage = "error" in agentEvent ? extractAgentErrorMessage(agentEvent.error) : null;
 		const recoverable = typeof agentEvent.recoverable === "boolean" ? agentEvent.recoverable : false;
 		const retainedToolActivity = getRetainedClineToolActivity(entry);
 		if (!recoverable) {
@@ -268,6 +295,11 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 
 	if (agentEvent?.type === "done") {
 		const finalText = typeof agentEvent.text === "string" ? agentEvent.text.trim() : "";
+		const iterations =
+			typeof agentEvent.iterations === "number" && Number.isFinite(agentEvent.iterations)
+				? agentEvent.iterations
+				: 0;
+		const usageSummary = formatUsageSummary(agentEvent.usage);
 		if (finalText) {
 			const message = setOrCreateAssistantMessage(entry, taskId, finalText);
 			if (message) {
@@ -277,6 +309,16 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				entry.messages.push(assistantMessage);
 				input.emitMessage(taskId, assistantMessage);
 			}
+		}
+		if (iterations > 0 || usageSummary) {
+			const doneReason = typeof agentEvent.reason === "string" ? agentEvent.reason : "completed";
+			const statusMessage = createMessage(
+				taskId,
+				"status",
+				`Done (${doneReason})${iterations > 0 ? ` • iterations=${iterations}` : ""}${usageSummary ? ` • ${usageSummary}` : ""}`,
+			);
+			entry.messages.push(statusMessage);
+			input.emitMessage(taskId, statusMessage);
 		}
 
 		const doneReason = typeof agentEvent.reason === "string" ? agentEvent.reason : "completed";

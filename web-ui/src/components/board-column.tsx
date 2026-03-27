@@ -11,6 +11,8 @@ import type { BoardCard as BoardCardModel, BoardColumnId, BoardColumn as BoardCo
 
 export function BoardColumn({
 	column,
+	flexBasis,
+	resizeHandle,
 	taskSessions,
 	onCreateTask,
 	onStartTask,
@@ -39,6 +41,10 @@ export function BoardColumn({
 	workspacePath,
 }: {
 	column: BoardColumnModel;
+	/** Fractional width (0–1). When provided, used as flex-grow ratio instead of equal distribution. */
+	flexBasis?: number;
+	/** Resize handle element rendered after this column (between this and the next column). */
+	resizeHandle?: ReactNode;
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
 	onCreateTask?: () => void;
 	onStartTask?: (taskId: string) => void;
@@ -83,12 +89,16 @@ export function BoardColumn({
 		</span>
 	);
 
+	// Use fractional flex-grow so columns resize proportionally
+	const flexGrow = flexBasis != null ? flexBasis * 1000 : 1;
+
 	return (
+		<>
 		<section
 			data-column-id={column.id}
 			className="flex flex-col min-w-0 min-h-0 bg-surface-1 rounded-lg overflow-hidden"
 			style={{
-				flex: "1 1 0",
+				flex: `${flexGrow} 1 0`,
 			}}
 		>
 			<div className="flex flex-col min-h-0" style={{ flex: "1 1 0" }}>
@@ -206,6 +216,8 @@ export function BoardColumn({
 				</Droppable>
 			</div>
 		</section>
+		{resizeHandle}
+		</>
 	);
 }
 

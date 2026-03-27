@@ -12,8 +12,10 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BoardColumn } from "@/components/board-column";
+import { ColumnResizeHandle } from "@/components/column-resize-handle";
 import { DependencyOverlay } from "@/components/dependencies/dependency-overlay";
 import { useDependencyLinking } from "@/components/dependencies/use-dependency-linking";
+import { useColumnWidths } from "@/hooks/use-column-widths";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { canCreateTaskDependency } from "@/state/board-state";
 import { findCardColumnId, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
@@ -80,6 +82,7 @@ export function KanbanBoard({
 }): React.ReactElement {
 	const dragOccurredRef = useRef(false);
 	const boardRef = useRef<HTMLElement>(null);
+	const columnWidths = useColumnWidths(BOARD_COLUMN_ORDER, boardRef);
 	const sensorApiRef = useRef<SensorAPI | null>(null);
 	const latestDataRef = useRef<BoardData>(data);
 	const programmaticCardMoveInFlightRef = useRef<ProgrammaticCardMoveInFlight | null>(null);
@@ -375,10 +378,20 @@ export function KanbanBoard({
 				className="kb-board kb-dependency-surface"
 				data-programmatic-card-move={programmaticCardMoveInFlight ? "true" : undefined}
 			>
-				{data.columns.map((column) => (
+				{data.columns.map((column, index) => (
 					<BoardColumn
 						key={column.id}
 						column={column}
+						flexBasis={columnWidths.widths[column.id]}
+						resizeHandle={
+							index < data.columns.length - 1 ? (
+								<ColumnResizeHandle
+									index={index}
+									isDragging={columnWidths.isDragging}
+									onMouseDown={columnWidths.onResizeMouseDown}
+								/>
+							) : undefined
+						}
 						taskSessions={taskSessions}
 						onCreateTask={column.id === "backlog" ? onCreateTask : undefined}
 						onStartTask={column.id === "backlog" ? onStartTask : undefined}

@@ -3,7 +3,6 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, ChevronUp, Ellipsis, Plus } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { FeaturebaseFeedbackState } from "@/hooks/use-featurebase-feedback-widget";
 import { ClineIcon } from "@/components/ui/cline-icon";
 import { cn } from "@/components/ui/cn";
 import {
@@ -18,9 +17,9 @@ import {
 } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
-import { openFeaturebaseFeedbackWidget } from "@/hooks/use-featurebase-feedback-widget";
-import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeProjectSummary } from "@/runtime/types";
+import type { FeaturebaseFeedbackState } from "@/hooks/use-featurebase-feedback-widget";
 import { isClineOauthAuthenticated, isNativeClineAgentSelected } from "@/runtime/native-agent";
+import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeProjectSummary } from "@/runtime/types";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform, modifierKeyLabel } from "@/utils/platform";
 
@@ -44,7 +43,6 @@ export function ProjectNavigationPanel({
 	onSelectProject,
 	onRemoveProject,
 	onAddProject,
-	onOpenSettings,
 	selectedAgentId = null,
 	clineProviderSettings = null,
 	featurebaseFeedbackState,
@@ -60,7 +58,6 @@ export function ProjectNavigationPanel({
 	onSelectProject: (projectId: string) => void;
 	onRemoveProject: (projectId: string) => Promise<boolean>;
 	onAddProject: () => void;
-	onOpenSettings?: () => void;
 	selectedAgentId?: RuntimeAgentId | null;
 	clineProviderSettings?: RuntimeClineProviderSettings | null;
 	featurebaseFeedbackState?: FeaturebaseFeedbackState;
@@ -272,7 +269,11 @@ export function ProjectNavigationPanel({
 						) : null}
 					</div>
 					<ShortcutsCard />
-					<FeedbackCard selectedAgentId={selectedAgentId} clineProviderSettings={clineProviderSettings} onOpenSettings={onOpenSettings} featurebaseFeedbackState={featurebaseFeedbackState} />
+					<FeedbackCard
+						selectedAgentId={selectedAgentId}
+						clineProviderSettings={clineProviderSettings}
+						featurebaseFeedbackState={featurebaseFeedbackState}
+					/>
 				</>
 			) : (
 				<div className="flex flex-1 min-h-0 flex-col">
@@ -425,7 +426,6 @@ export function FeedbackCard({
 }: {
 	selectedAgentId?: RuntimeAgentId | null;
 	clineProviderSettings?: RuntimeClineProviderSettings | null;
-	onOpenSettings?: () => void;
 	featurebaseFeedbackState?: FeaturebaseFeedbackState;
 }): React.ReactElement | null {
 	const isClineAgent = isNativeClineAgentSelected(selectedAgentId);

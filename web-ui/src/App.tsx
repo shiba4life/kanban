@@ -772,10 +772,9 @@ export default function App(): ReactElement {
 					onAddProject={() => {
 						void handleAddProject();
 					}}
-									onOpenSettings={handleOpenSettings}
-								selectedAgentId={settingsRuntimeProjectConfig?.selectedAgentId ?? null}
-									clineProviderSettings={settingsRuntimeProjectConfig?.clineProviderSettings ?? null}
-									featurebaseFeedbackState={featurebaseFeedbackState}
+					selectedAgentId={settingsRuntimeProjectConfig?.selectedAgentId ?? null}
+					clineProviderSettings={settingsRuntimeProjectConfig?.clineProviderSettings ?? null}
+					featurebaseFeedbackState={featurebaseFeedbackState}
 				/>
 			) : null}
 			<div className="flex flex-col flex-1 min-w-0 overflow-hidden">

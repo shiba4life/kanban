@@ -16,8 +16,11 @@ import {
 	type UserInstructionConfigWatcher,
 } from "@clinebot/core/node";
 import type { LlmsProviders as ClineSdkProviders } from "@clinebot/llms";
+import type { BasicLogger } from "@clinebot/shared";
+import { resolveClineDataDir } from "@clinebot/shared/storage";
 
 export type ClineSdkSessionHost = SessionHost;
+export type ClineSdkBasicLogger = BasicLogger;
 export interface ClineSdkContentStartTextEvent {
 	type: "content_start";
 	contentType: "text";
@@ -199,6 +202,10 @@ export async function createClineSdkSessionHost(): Promise<ClineSdkSessionHost> 
 		backendMode: "auto",
 		autoStartRpcServer: true,
 	});
+}
+
+export function resolveClineSdkDataDir(): string {
+	return resolveClineDataDir();
 }
 
 export async function buildClineSdkWorkspaceMetadata(cwd: string): Promise<string> {

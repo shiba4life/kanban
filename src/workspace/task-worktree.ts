@@ -389,9 +389,62 @@ async function initializeSubmodulesIfNeeded(worktreePath: string): Promise<void>
 	await getGitStdout(["submodule", "update", "--init", "--recursive"], worktreePath);
 }
 
+async function updateSubmodulesToLatestRemote(worktreePath: string): Promise<void> {
+	// List all submodule paths
+	const submoduleOutput = await tryRunGit(worktreePath, [
+		"submodule",
+		"foreach",
+		"--recursive",
+		"--quiet",
+		"echo $sm_path",
+	]);
+	if (!submoduleOutput || submoduleOutput.trim().length === 0) {
+		return;
+	}
+
+	const submodulePaths = submoduleOutput
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0);
+
+	for (const submodulePath of submodulePaths) {
+		const submoduleFullPath = join(worktreePath, submodulePath);
+
+		// Fetch latest from remote
+		await runGit(submoduleFullPath, ["fetch", "origin"]);
+
+		// Determine default branch: try symbolic-ref first, fall back to common names
+		let defaultBranch: string | null = null;
+		const symbolicRef = await tryRunGit(submoduleFullPath, ["symbolic-ref", "refs/remotes/origin/HEAD"]);
+		if (symbolicRef) {
+			defaultBranch = symbolicRef.replace("refs/remotes/origin/", "").trim();
+		}
+
+		if (!defaultBranch) {
+			// Try common default branch names
+			for (const candidate of ["main", "mainline", "master"]) {
+				const exists = await runGit(submoduleFullPath, ["rev-parse", "--verify", `origin/${candidate}`]);
+				if (exists.ok) {
+					defaultBranch = candidate;
+					break;
+				}
+			}
+		}
+
+		if (!defaultBranch) {
+			continue;
+		}
+
+		// Checkout default branch and pull latest
+		await runGit(submoduleFullPath, ["checkout", defaultBranch]);
+		await runGit(submoduleFullPath, ["pull", "origin", defaultBranch]);
+	}
+}
+
 async function prepareNewTaskWorktree(repoPath: string, worktreePath: string): Promise<void> {
 	try {
 		await initializeSubmodulesIfNeeded(worktreePath);
+		await updateSubmodulesToLatestRemote(worktreePath);
 		await syncIgnoredPathsIntoWorktree(repoPath, worktreePath);
 	} catch (error) {
 		await removeTaskWorktreeInternal(repoPath, worktreePath).catch(() => {});

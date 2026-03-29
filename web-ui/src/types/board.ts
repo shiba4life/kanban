@@ -5,10 +5,10 @@ export type BoardColumnId = RuntimeBoardColumnId;
 export type TaskAutoReviewMode = RuntimeTaskAutoReviewMode;
 export type TaskImage = RuntimeTaskImage;
 
-export const DEFAULT_TASK_AUTO_REVIEW_MODE: TaskAutoReviewMode = "commit";
+export const DEFAULT_TASK_AUTO_REVIEW_MODE: TaskAutoReviewMode = "pr_merge";
 
 export function resolveTaskAutoReviewMode(mode: TaskAutoReviewMode | null | undefined): TaskAutoReviewMode {
-	if (mode === "pr" || mode === "move_to_trash") {
+	if (mode === "pr" || mode === "pr_merge" || mode === "move_to_trash") {
 		return mode;
 	}
 	return DEFAULT_TASK_AUTO_REVIEW_MODE;
@@ -19,6 +19,9 @@ export function getTaskAutoReviewActionLabel(mode: TaskAutoReviewMode | null | u
 	if (resolvedMode === "pr") {
 		return "PR";
 	}
+	if (resolvedMode === "pr_merge") {
+		return "PR + merge monitor";
+	}
 	if (resolvedMode === "move_to_trash") {
 		return "move to trash";
 	}
@@ -27,7 +30,7 @@ export function getTaskAutoReviewActionLabel(mode: TaskAutoReviewMode | null | u
 
 export function getTaskAutoReviewCancelButtonLabel(mode: TaskAutoReviewMode | null | undefined): string {
 	const resolvedMode = resolveTaskAutoReviewMode(mode);
-	if (resolvedMode === "pr") {
+	if (resolvedMode === "pr" || resolvedMode === "pr_merge") {
 		return "Cancel Auto-PR";
 	}
 	if (resolvedMode === "move_to_trash") {

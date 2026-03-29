@@ -47,6 +47,8 @@ export function useReviewAutoActions({
 	const timerByTaskIdRef = useRef<Record<string, number>>({});
 	const scheduledActionByTaskIdRef = useRef<Record<string, TaskAutoReviewMode>>({});
 	const moveToTrashInFlightTaskIdsRef = useRef<Set<string>>(new Set());
+	// Tracks pr_merge phase: "creating_pr" after initial PR action, "monitoring" after PR is created
+	const prMergePhaseByTaskIdRef = useRef<Record<string, "creating_pr" | "monitoring">>({});
 
 	useEffect(() => {
 		boardRef.current = board;
@@ -77,6 +79,7 @@ export function useReviewAutoActions({
 		timerByTaskIdRef.current = {};
 		scheduledActionByTaskIdRef.current = {};
 		moveToTrashInFlightTaskIdsRef.current.clear();
+		prMergePhaseByTaskIdRef.current = {};
 	}, []);
 
 	const scheduleAutoReviewAction = useCallback((taskId: string, action: TaskAutoReviewMode, execute: () => void) => {
@@ -106,6 +109,34 @@ export function useReviewAutoActions({
 		clearAllAutoReviewState();
 	}, [clearAllAutoReviewState, resetKey]);
 
+	const scheduleTrashAction = useCallback(
+		(taskId: string, expectedMode: TaskAutoReviewMode) => {
+			scheduleAutoReviewAction(taskId, "move_to_trash", () => {
+				const latestSelection = findCardSelection(boardRef.current, taskId);
+				if (!latestSelection || latestSelection.column.id !== "review") {
+					return;
+				}
+				if (!isTaskAutoReviewEnabled(latestSelection.card)) {
+					return;
+				}
+				const latestMode = resolveTaskAutoReviewMode(latestSelection.card.autoReviewMode);
+				if (latestMode !== expectedMode) {
+					return;
+				}
+				moveToTrashInFlightTaskIdsRef.current.add(taskId);
+				void requestMoveTaskToTrashRef
+					.current(taskId, "review", {
+						skipWorkingChangeWarning: true,
+					})
+					.finally(() => {
+						delete awaitingCleanActionByTaskIdRef.current[taskId];
+						moveToTrashInFlightTaskIdsRef.current.delete(taskId);
+					});
+			});
+		},
+		[scheduleAutoReviewAction],
+	);
+
 	const evaluateAutoReview = useCallback(
 		(_trigger: { source: string; taskId?: string }) => {
 			const columnByTaskId = new Map<string, BoardColumnId>();
@@ -125,12 +156,20 @@ export function useReviewAutoActions({
 					delete awaitingCleanActionByTaskIdRef.current[taskId];
 					clearAutoReviewTimer(taskId);
 					moveToTrashInFlightTaskIdsRef.current.delete(taskId);
+					delete prMergePhaseByTaskIdRef.current[taskId];
 				}
 			}
 
 			for (const taskId of moveToTrashInFlightTaskIdsRef.current) {
 				if (columnByTaskId.get(taskId) !== "review") {
 					moveToTrashInFlightTaskIdsRef.current.delete(taskId);
+				}
+			}
+
+			// Clean up pr_merge phase for tasks no longer in review
+			for (const taskId of Object.keys(prMergePhaseByTaskIdRef.current)) {
+				if (columnByTaskId.get(taskId) !== "review") {
+					delete prMergePhaseByTaskIdRef.current[taskId];
 				}
 			}
 
@@ -145,6 +184,7 @@ export function useReviewAutoActions({
 				const autoReviewEnabled = isTaskAutoReviewEnabled(reviewTask);
 				if (!autoReviewEnabled) {
 					delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];
+					delete prMergePhaseByTaskIdRef.current[reviewTask.id];
 					clearAutoReviewTimer(reviewTask.id);
 					continue;
 				}
@@ -154,7 +194,7 @@ export function useReviewAutoActions({
 				const isGitActionInFlight =
 					autoReviewMode === "commit"
 						? loadingState?.commitSource !== null && loadingState?.commitSource !== undefined
-						: autoReviewMode === "pr"
+						: autoReviewMode === "pr" || autoReviewMode === "pr_merge"
 							? loadingState?.prSource !== null && loadingState?.prSource !== undefined
 							: false;
 
@@ -186,42 +226,86 @@ export function useReviewAutoActions({
 					continue;
 				}
 
-				// Commit/PR automation mental model:
+				// Commit/PR/PR-merge automation mental model:
 				// - A task is only "armed" for auto-trash after we actually see working changes in review and trigger commit/pr.
 				// - Review entries with zero changes (common during start-in-plan-mode planning loops) are intentionally ignored.
-				// - Once armed, a later review state with zero changes is treated as commit/pr success, then we auto-move to trash.
+				// - Once armed, a later review state with zero changes is treated as commit/pr success.
+				// - For commit/pr modes: auto-move to trash immediately.
+				// - For pr_merge mode: after PR is created (changedFiles === 0), send a monitoring prompt instead of trashing.
+				//   The agent monitors the PR, fixes CI/merge issues, and only when the agent returns to review again
+				//   with changedFiles === 0 while in monitoring phase, we auto-trash (PR is merged).
 				const changedFiles = getTaskWorkspaceSnapshot(reviewTask.id)?.changedFiles;
 				const awaitingAction = awaitingCleanActionByTaskIdRef.current[reviewTask.id] ?? null;
+				const prMergePhase = prMergePhaseByTaskIdRef.current[reviewTask.id] ?? null;
+
 				if (awaitingAction) {
 					if (
 						changedFiles === 0 &&
 						!isGitActionInFlight &&
 						!moveToTrashInFlightTaskIdsRef.current.has(reviewTask.id)
 					) {
-						scheduleAutoReviewAction(reviewTask.id, "move_to_trash", () => {
-							const latestSelection = findCardSelection(boardRef.current, reviewTask.id);
-							if (!latestSelection || latestSelection.column.id !== "review") {
-								return;
+						if (autoReviewMode === "pr_merge" && prMergePhase === "creating_pr") {
+							// PR was just created (changedFiles went to 0). Send monitoring prompt instead of trashing.
+							prMergePhaseByTaskIdRef.current[reviewTask.id] = "monitoring";
+							delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];
+							clearAutoReviewTimer(reviewTask.id);
+							scheduleAutoReviewAction(reviewTask.id, "pr_merge", () => {
+								const latestSelection = findCardSelection(boardRef.current, reviewTask.id);
+								if (!latestSelection || latestSelection.column.id !== "review") {
+									return;
+								}
+								if (!isTaskAutoReviewEnabled(latestSelection.card)) {
+									return;
+								}
+								const latestMode = resolveTaskAutoReviewMode(latestSelection.card.autoReviewMode);
+								if (latestMode !== "pr_merge") {
+									return;
+								}
+								void runAutoReviewGitActionRef.current(reviewTask.id, "pr_monitor");
+							});
+						} else if (autoReviewMode === "pr_merge" && prMergePhase === "monitoring") {
+							// Agent returned from monitoring with changedFiles === 0 → PR is merged. Auto-trash.
+							delete prMergePhaseByTaskIdRef.current[reviewTask.id];
+							scheduleTrashAction(reviewTask.id, "pr_merge");
+						} else {
+							// commit or pr mode: auto-trash as before
+							scheduleTrashAction(reviewTask.id, autoReviewMode);
+						}
+					} else if (autoReviewMode === "pr_merge" && prMergePhase === "monitoring" && (changedFiles ?? 0) > 0) {
+						// Agent fixed something during monitoring (changedFiles > 0). Commit the fixes then re-monitor.
+						delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];
+						clearAutoReviewTimer(reviewTask.id);
+						awaitingCleanActionByTaskIdRef.current[reviewTask.id] = "commit";
+						void runAutoReviewGitActionRef.current(reviewTask.id, "commit").then((triggered) => {
+							if (!triggered && awaitingCleanActionByTaskIdRef.current[reviewTask.id] === "commit") {
+								delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];
 							}
-							if (!isTaskAutoReviewEnabled(latestSelection.card)) {
-								return;
-							}
-							const latestMode = resolveTaskAutoReviewMode(latestSelection.card.autoReviewMode);
-							if (latestMode !== autoReviewMode) {
-								return;
-							}
-							moveToTrashInFlightTaskIdsRef.current.add(reviewTask.id);
-							void requestMoveTaskToTrashRef
-								.current(reviewTask.id, "review", {
-									skipWorkingChangeWarning: true,
-								})
-								.finally(() => {
-									delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];
-									moveToTrashInFlightTaskIdsRef.current.delete(reviewTask.id);
-								});
 						});
 					} else {
 						clearAutoReviewTimer(reviewTask.id);
+					}
+					continue;
+				}
+
+				// pr_merge monitoring phase: agent returned to review with no awaiting action.
+				if (autoReviewMode === "pr_merge" && prMergePhase === "monitoring") {
+					if ((changedFiles ?? 0) > 0 && !isGitActionInFlight) {
+						// Agent made fixes, commit them
+						awaitingCleanActionByTaskIdRef.current[reviewTask.id] = "commit";
+						void runAutoReviewGitActionRef.current(reviewTask.id, "commit").then((triggered) => {
+							if (!triggered && awaitingCleanActionByTaskIdRef.current[reviewTask.id] === "commit") {
+								delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];
+							}
+						});
+					} else if (changedFiles === 0 && !isGitActionInFlight) {
+						// No changes + monitoring phase → PR is merged. Trash it.
+						delete prMergePhaseByTaskIdRef.current[reviewTask.id];
+						scheduleTrashAction(reviewTask.id, "pr_merge");
+					} else {
+						// Send monitoring prompt to check PR status again
+						scheduleAutoReviewAction(reviewTask.id, "pr_merge", () => {
+							void runAutoReviewGitActionRef.current(reviewTask.id, "pr_monitor");
+						});
 					}
 					continue;
 				}
@@ -231,6 +315,9 @@ export function useReviewAutoActions({
 					continue;
 				}
 
+				// Initial trigger: changedFiles > 0, start the git action.
+				// For pr_merge, use "pr" action for initial PR creation.
+				const initialAction: TaskGitAction = autoReviewMode === "pr_merge" ? "pr" : autoReviewMode;
 				scheduleAutoReviewAction(reviewTask.id, autoReviewMode, () => {
 					const latestSelection = findCardSelection(boardRef.current, reviewTask.id);
 					if (!latestSelection || latestSelection.column.id !== "review") {
@@ -243,16 +330,22 @@ export function useReviewAutoActions({
 					if (latestMode !== autoReviewMode) {
 						return;
 					}
-					awaitingCleanActionByTaskIdRef.current[reviewTask.id] = latestMode;
-					void runAutoReviewGitActionRef.current(reviewTask.id, latestMode).then((triggered) => {
-						if (!triggered && awaitingCleanActionByTaskIdRef.current[reviewTask.id] === latestMode) {
+					if (autoReviewMode === "pr_merge") {
+						prMergePhaseByTaskIdRef.current[reviewTask.id] = "creating_pr";
+					}
+					awaitingCleanActionByTaskIdRef.current[reviewTask.id] = initialAction;
+					void runAutoReviewGitActionRef.current(reviewTask.id, initialAction).then((triggered) => {
+						if (!triggered && awaitingCleanActionByTaskIdRef.current[reviewTask.id] === initialAction) {
 							delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];
+							if (autoReviewMode === "pr_merge") {
+								delete prMergePhaseByTaskIdRef.current[reviewTask.id];
+							}
 						}
 					});
 				});
 			}
 		},
-		[clearAutoReviewTimer, scheduleAutoReviewAction, taskGitActionLoadingByTaskId],
+		[clearAutoReviewTimer, scheduleAutoReviewAction, scheduleTrashAction, taskGitActionLoadingByTaskId],
 	);
 
 	useEffect(() => {

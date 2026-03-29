@@ -4,12 +4,12 @@ import { dirname, join } from "node:path";
 import type { LockOptions } from "proper-lockfile";
 import * as lockfile from "proper-lockfile";
 
-const DEFAULT_LOCK_STALE_MS = 10_000;
+const DEFAULT_LOCK_STALE_MS = 120_000;
 const DEFAULT_LOCK_RETRIES: NonNullable<LockOptions["retries"]> = {
-	retries: 200,
+	retries: 600,
 	factor: 1,
-	minTimeout: 25,
-	maxTimeout: 50,
+	minTimeout: 100,
+	maxTimeout: 200,
 	randomize: false,
 };
 

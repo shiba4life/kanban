@@ -1,6 +1,6 @@
 import type { RuntimeTaskAutoReviewMode, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
 
-export type TaskGitAction = Extract<RuntimeTaskAutoReviewMode, "commit" | "pr">;
+export type TaskGitAction = Extract<RuntimeTaskAutoReviewMode, "commit" | "pr"> | "pr_monitor";
 
 interface TaskGitPromptVariable {
 	key: string;
@@ -38,6 +38,20 @@ function resolveTemplate(action: TaskGitAction, templates?: TaskGitPromptTemplat
 			return defaultTemplate;
 		}
 		return "Handle this commit action using the provided git context.";
+	}
+	if (action === "pr_monitor") {
+		return `You previously created a pull request for this branch. Now monitor it until it is merged.
+
+Check the PR status using: gh pr view --json state,mergeable,statusCheckRollup
+
+Based on what you find:
+- If the PR is MERGED: you are done, stop working.
+- If CI checks are failing: investigate the failures, fix the code, commit, and push the fixes. Then check the PR status again.
+- If there are merge conflicts: rebase your branch against {{base_ref}}, resolve conflicts, and force-push. Then check the PR status again.
+- If the PR is OPEN and all checks pass: wait 30 seconds, then check the status again. Repeat until merged.
+- If the PR is CLOSED (not merged): stop working and report the issue.
+
+Keep monitoring until the PR reaches a terminal state (merged or closed).`;
 	}
 	const template = templates?.openPrPromptTemplate?.trim();
 	if (template) {

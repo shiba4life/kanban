@@ -27,10 +27,10 @@ export interface RuntimeUpdateTaskInput {
 }
 
 function normalizeTaskAutoReviewMode(value: RuntimeTaskAutoReviewMode | null | undefined): RuntimeTaskAutoReviewMode {
-	if (value === "pr" || value === "move_to_trash") {
+	if (value === "commit" || value === "pr" || value === "pr_merge" || value === "move_to_trash") {
 		return value;
 	}
-	return "commit";
+	return "pr_merge";
 }
 
 // Copy image metadata so board tasks do not retain caller-owned array or object references.
@@ -276,7 +276,7 @@ export function addTaskToColumn(
 		id: createUniqueTaskId(existingIds, randomUuid),
 		prompt,
 		startInPlanMode: Boolean(input.startInPlanMode),
-		autoReviewEnabled: Boolean(input.autoReviewEnabled),
+		autoReviewEnabled: input.autoReviewEnabled !== undefined ? Boolean(input.autoReviewEnabled) : true,
 		autoReviewMode: normalizeTaskAutoReviewMode(input.autoReviewMode),
 		images: cloneTaskImages(input.images),
 		baseRef,
@@ -396,6 +396,75 @@ export function trashTaskAndGetReadyLinkedTaskIds(
 		...movedToTrash,
 		readyTaskIds: movedToTrash.moved ? readyTaskIds : [],
 	};
+}
+
+/**
+ * Returns backlog task IDs that have no unresolved dependencies (all prerequisite tasks are in trash).
+ * Tasks are returned in their original backlog order.
+ */
+export function getReadyBacklogTaskIds(board: RuntimeBoardData): string[] {
+	const backlogTaskIds: string[] = [];
+	const columnById = new Map<string, RuntimeBoardColumnId>();
+	for (const column of board.columns) {
+		for (const card of column.cards) {
+			columnById.set(card.id, column.id);
+			if (column.id === "backlog") {
+				backlogTaskIds.push(card.id);
+			}
+		}
+	}
+
+	if (backlogTaskIds.length === 0) {
+		return [];
+	}
+
+	// Build a map of backlog task → set of prerequisite task IDs (toTaskId)
+	const prerequisitesByBacklogTask = new Map<string, Set<string>>();
+	for (const dep of board.dependencies) {
+		if (columnById.get(dep.fromTaskId) !== "backlog") {
+			continue;
+		}
+		if (!prerequisitesByBacklogTask.has(dep.fromTaskId)) {
+			prerequisitesByBacklogTask.set(dep.fromTaskId, new Set());
+		}
+		prerequisitesByBacklogTask.get(dep.fromTaskId)?.add(dep.toTaskId);
+	}
+
+	const readyTaskIds: string[] = [];
+	for (const taskId of backlogTaskIds) {
+		const prerequisites = prerequisitesByBacklogTask.get(taskId);
+		if (!prerequisites || prerequisites.size === 0) {
+			// No dependencies — ready
+			readyTaskIds.push(taskId);
+			continue;
+		}
+		// Check if all prerequisites are in trash
+		const allInTrash = [...prerequisites].every((prereqId) => columnById.get(prereqId) === "trash");
+		if (allInTrash) {
+			readyTaskIds.push(taskId);
+		}
+	}
+	return readyTaskIds;
+}
+
+/**
+ * Returns backlog task IDs that should be auto-started to fill up to maxConcurrent in-progress tasks.
+ * Only returns ready tasks (no unresolved dependencies). Excludes task IDs in `alreadyStarting`.
+ */
+export function getBacklogTaskIdsToFillConcurrency(
+	board: RuntimeBoardData,
+	maxConcurrent: number,
+	alreadyStarting: Set<string> = new Set(),
+): string[] {
+	const inProgressCount = board.columns.find((c) => c.id === "in_progress")?.cards.length ?? 0;
+	const currentCount = inProgressCount + alreadyStarting.size;
+	const slotsAvailable = maxConcurrent - currentCount;
+	if (slotsAvailable <= 0) {
+		return [];
+	}
+
+	const readyTaskIds = getReadyBacklogTaskIds(board).filter((id) => !alreadyStarting.has(id));
+	return readyTaskIds.slice(0, slotsAvailable);
 }
 
 export function deleteTasksFromBoard(board: RuntimeBoardData, taskIds: Iterable<string>): RuntimeDeleteTasksResult {

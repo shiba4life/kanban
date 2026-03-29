@@ -92,7 +92,7 @@ export function useTaskEditor({
 	);
 	const [newTaskAutoReviewEnabled, setNewTaskAutoReviewEnabled] = useBooleanLocalStorageValue(
 		TASK_AUTO_REVIEW_ENABLED_STORAGE_KEY,
-		false,
+		true,
 	);
 	const [newTaskAutoReviewMode, setNewTaskAutoReviewMode] = useRawLocalStorageValue<TaskAutoReviewMode>(
 		TASK_AUTO_REVIEW_MODE_STORAGE_KEY,
@@ -106,8 +106,8 @@ export function useTaskEditor({
 	const [editTaskPrompt, setEditTaskPrompt] = useState("");
 	const [editTaskImages, setEditTaskImages] = useState<TaskImage[]>([]);
 	const [editTaskStartInPlanMode, setEditTaskStartInPlanMode] = useState(false);
-	const [editTaskAutoReviewEnabled, setEditTaskAutoReviewEnabled] = useState(false);
-	const [editTaskAutoReviewMode, setEditTaskAutoReviewMode] = useState<TaskAutoReviewMode>("commit");
+	const [editTaskAutoReviewEnabled, setEditTaskAutoReviewEnabled] = useState(true);
+	const [editTaskAutoReviewMode, setEditTaskAutoReviewMode] = useState<TaskAutoReviewMode>("pr_merge");
 	const isEditTaskStartInPlanModeDisabled = editTaskAutoReviewEnabled && editTaskAutoReviewMode === "move_to_trash";
 	const [editTaskBranchRef, setEditTaskBranchRef] = useState("");
 

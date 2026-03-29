@@ -76,7 +76,7 @@ export type RuntimeAgentId = z.infer<typeof runtimeAgentIdSchema>;
 export const runtimeBoardColumnIdSchema = z.enum(["backlog", "in_progress", "review", "trash"]);
 export type RuntimeBoardColumnId = z.infer<typeof runtimeBoardColumnIdSchema>;
 
-export const runtimeTaskAutoReviewModeSchema = z.enum(["commit", "pr", "move_to_trash"]);
+export const runtimeTaskAutoReviewModeSchema = z.enum(["commit", "pr", "pr_merge", "move_to_trash"]);
 export type RuntimeTaskAutoReviewMode = z.infer<typeof runtimeTaskAutoReviewModeSchema>;
 
 export const runtimeTaskImageSchema = z.object({

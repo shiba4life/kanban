@@ -123,7 +123,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		id: typeof card.id === "string" && card.id ? card.id : createShortTaskId(createBrowserUuid),
 		prompt,
 		startInPlanMode: typeof card.startInPlanMode === "boolean" ? card.startInPlanMode : false,
-		autoReviewEnabled: typeof card.autoReviewEnabled === "boolean" ? card.autoReviewEnabled : false,
+		autoReviewEnabled: typeof card.autoReviewEnabled === "boolean" ? card.autoReviewEnabled : true,
 		autoReviewMode: resolveTaskAutoReviewMode(
 			typeof card.autoReviewMode === "string" ? (card.autoReviewMode as TaskAutoReviewMode) : undefined,
 		),
@@ -311,6 +311,14 @@ export function trashTaskAndGetReadyLinkedTaskIds(
 	taskId: string,
 ): { board: BoardData; moved: boolean; readyTaskIds: string[] } {
 	return runtimeTaskState.trashTaskAndGetReadyLinkedTaskIds(board, taskId);
+}
+
+export function getBacklogTaskIdsToFillConcurrency(
+	board: BoardData,
+	maxConcurrent: number,
+	alreadyStarting: Set<string> = new Set(),
+): string[] {
+	return runtimeTaskState.getBacklogTaskIdsToFillConcurrency(board, maxConcurrent, alreadyStarting);
 }
 
 export function applyDragResult(

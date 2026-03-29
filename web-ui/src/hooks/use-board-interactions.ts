@@ -803,7 +803,7 @@ export function useBoardInteractions({
 				const updated = updateTask(currentBoard, taskId, {
 					prompt: selection.card.prompt,
 					startInPlanMode: selection.card.startInPlanMode,
-					autoReviewEnabled: false,
+					autoReviewEnabled: true,
 					autoReviewMode: resolveTaskAutoReviewMode(selection.card.autoReviewMode),
 					baseRef: selection.card.baseRef,
 				});

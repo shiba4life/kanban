@@ -7,6 +7,7 @@ import {
 	addTaskDependency,
 	addTaskToColumn,
 	deleteTasksFromBoard,
+	getBacklogTaskIdsToFillConcurrency,
 	getTaskColumnId,
 	moveTaskToColumn,
 	type RuntimeAddTaskDependencyResult,
@@ -60,14 +61,14 @@ function parseListColumn(value: string | undefined): ListTaskColumn | undefined 
 	throw new Error(`Invalid column "${value}". Expected one of: ${LIST_TASK_COLUMNS.join(", ")}.`);
 }
 
-function parseAutoReviewMode(value: string | undefined): "commit" | "pr" | "move_to_trash" | undefined {
+function parseAutoReviewMode(value: string | undefined): "commit" | "pr" | "pr_merge" | "move_to_trash" | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
-	if (value === "commit" || value === "pr" || value === "move_to_trash") {
+	if (value === "commit" || value === "pr" || value === "pr_merge" || value === "move_to_trash") {
 		return value;
 	}
-	throw new Error(`Invalid auto review mode "${value}". Expected: commit, pr, move_to_trash.`);
+	throw new Error(`Invalid auto review mode "${value}". Expected: commit, pr, pr_merge, move_to_trash.`);
 }
 
 function resolveTaskCommandTarget(input: TaskCommandTarget, commandName: string): ResolvedTaskCommandTarget {
@@ -189,7 +190,7 @@ function formatTaskRecord(state: RuntimeWorkspaceStateResponse, task: RuntimeBoa
 		baseRef: task.baseRef,
 		startInPlanMode: task.startInPlanMode,
 		autoReviewEnabled: task.autoReviewEnabled === true,
-		autoReviewMode: task.autoReviewMode ?? "commit",
+		autoReviewMode: task.autoReviewMode ?? "pr_merge",
 		createdAt: task.createdAt,
 		updatedAt: task.updatedAt,
 		session: session
@@ -316,7 +317,7 @@ async function createTask(input: {
 	baseRef?: string;
 	startInPlanMode?: boolean;
 	autoReviewEnabled?: boolean;
-	autoReviewMode?: "commit" | "pr" | "move_to_trash";
+	autoReviewMode?: "commit" | "pr" | "pr_merge" | "move_to_trash";
 }): Promise<JsonRecord> {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
@@ -354,7 +355,7 @@ async function createTask(input: {
 			baseRef: created.baseRef,
 			startInPlanMode: created.startInPlanMode,
 			autoReviewEnabled: created.autoReviewEnabled === true,
-			autoReviewMode: created.autoReviewMode ?? "commit",
+			autoReviewMode: created.autoReviewMode ?? "pr_merge",
 		},
 	};
 }
@@ -367,7 +368,7 @@ async function updateTaskCommand(input: {
 	baseRef?: string;
 	startInPlanMode?: boolean;
 	autoReviewEnabled?: boolean;
-	autoReviewMode?: "commit" | "pr" | "move_to_trash";
+	autoReviewMode?: "commit" | "pr" | "pr_merge" | "move_to_trash";
 }): Promise<JsonRecord> {
 	if (
 		input.prompt === undefined &&
@@ -636,10 +637,37 @@ async function trashTaskById(input: {
 	}
 
 	const autoStartedTasks: JsonRecord[] = [];
+	const alreadyStartingIds = new Set<string>();
+
+	// Phase 1: Start linked ready tasks (dependency-driven)
 	for (const readyTaskId of mutation.value.readyTaskIds) {
 		const started = await startTask({
 			cwd: input.cwd,
 			taskId: readyTaskId,
+			projectPath: input.projectPath,
+		});
+		autoStartedTasks.push(started);
+		alreadyStartingIds.add(readyTaskId);
+	}
+
+	// Phase 2: Auto-fill in_progress up to MAX_CONCURRENT_TASKS with ready backlog tasks
+	const MAX_CONCURRENT_TASKS = 3;
+	const fillResult = await mutateWorkspaceState(input.workspaceRepoPath, (latestState) => {
+		const fillTaskIds = getBacklogTaskIdsToFillConcurrency(
+			latestState.board,
+			MAX_CONCURRENT_TASKS,
+			alreadyStartingIds,
+		);
+		return {
+			board: latestState.board,
+			value: { fillTaskIds },
+			save: false,
+		};
+	});
+	for (const fillTaskId of fillResult.value.fillTaskIds) {
+		const started = await startTask({
+			cwd: input.cwd,
+			taskId: fillTaskId,
 			projectPath: input.projectPath,
 		});
 		autoStartedTasks.push(started);
@@ -650,7 +678,7 @@ async function trashTaskById(input: {
 	return {
 		task: mutation.value.task,
 		taskId: input.taskId,
-		readyTaskIds: mutation.value.readyTaskIds,
+		readyTaskIds: [...mutation.value.readyTaskIds, ...fillResult.value.fillTaskIds],
 		autoStartedTasks,
 		worktreeDeleted: deletedWorkspace.removed,
 		worktreeDeleteError: deletedWorkspace.error,
@@ -901,7 +929,11 @@ export function registerTaskCommand(program: Command): void {
 		.option("--base-ref <branch>", "Task base branch/ref.")
 		.option("--start-in-plan-mode [value]", "Set plan mode (true|false). Flag-only implies true.")
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
-		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr | move_to_trash.", parseAutoReviewMode)
+		.option(
+			"--auto-review-mode <mode>",
+			"Auto-review mode: commit | pr | pr_merge | move_to_trash.",
+			parseAutoReviewMode,
+		)
 		.action(
 			async (options: {
 				prompt: string;
@@ -909,7 +941,7 @@ export function registerTaskCommand(program: Command): void {
 				baseRef?: string;
 				startInPlanMode?: unknown;
 				autoReviewEnabled?: unknown;
-				autoReviewMode?: "commit" | "pr" | "move_to_trash";
+				autoReviewMode?: "commit" | "pr" | "pr_merge" | "move_to_trash";
 			}) => {
 				await runTaskCommand(
 					async () =>
@@ -935,7 +967,11 @@ export function registerTaskCommand(program: Command): void {
 		.option("--base-ref <branch>", "Replacement base branch/ref.")
 		.option("--start-in-plan-mode [value]", "Set plan mode (true|false). Flag-only implies true.")
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
-		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr | move_to_trash.", parseAutoReviewMode)
+		.option(
+			"--auto-review-mode <mode>",
+			"Auto-review mode: commit | pr | pr_merge | move_to_trash.",
+			parseAutoReviewMode,
+		)
 		.action(
 			async (options: {
 				taskId: string;
@@ -944,7 +980,7 @@ export function registerTaskCommand(program: Command): void {
 				baseRef?: string;
 				startInPlanMode?: unknown;
 				autoReviewEnabled?: unknown;
-				autoReviewMode?: "commit" | "pr" | "move_to_trash";
+				autoReviewMode?: "commit" | "pr" | "pr_merge" | "move_to_trash";
 			}) => {
 				await runTaskCommand(
 					async () =>

@@ -6,6 +6,7 @@ import { getDetailTerminalTaskId } from "@/hooks/use-terminal-panels";
 import {
 	addTaskDependency,
 	findCardSelection,
+	getBacklogTaskIdsToFillConcurrency,
 	moveTaskToColumn,
 	removeTaskDependency,
 	trashTaskAndGetReadyLinkedTaskIds,
@@ -163,6 +164,49 @@ export function useLinkedBacklogTaskActions({
 				}
 				if (startedTaskCount > 0) {
 					trackTasksAutoStartedFromDependency(startedTaskCount);
+				}
+			}
+
+			// Phase 2: Auto-fill in_progress up to MAX_CONCURRENT_TASKS with ready backlog tasks
+			const MAX_CONCURRENT_TASKS = 3;
+			const alreadyStartingIds = new Set(trashed.readyTaskIds);
+			const latestBoardAfterTrash = boardRef.current;
+			const fillTaskIds = getBacklogTaskIdsToFillConcurrency(
+				latestBoardAfterTrash,
+				MAX_CONCURRENT_TASKS,
+				alreadyStartingIds,
+			);
+			const fillTasks = fillTaskIds
+				.map((id) => findCardSelection(latestBoardAfterTrash, id)?.card ?? null)
+				.filter((t): t is BoardCard => t !== null);
+
+			if (fillTasks.length > 0) {
+				maybeRequestNotificationPermissionForTaskStart();
+				if (startBacklogTaskWithAnimation) {
+					for (const [index, fillTask] of fillTasks.entries()) {
+						await startBacklogTaskWithAnimation(fillTask);
+						if (index < fillTasks.length - 1) {
+							await waitForBacklogStartAnimationAvailability?.();
+						}
+					}
+				} else {
+					setBoard((currentBoardState) => {
+						let nextBoardState = currentBoardState;
+						for (const fillTask of fillTasks) {
+							const moved = moveTaskToColumn(nextBoardState, fillTask.id, "in_progress", {
+								insertAtTop: true,
+							});
+							if (moved.moved) {
+								nextBoardState = moved.board;
+							}
+						}
+						return nextBoardState;
+					});
+					for (const fillTask of fillTasks) {
+						await kickoffTaskInProgress(fillTask, fillTask.id, "backlog", {
+							optimisticMove: true,
+						});
+					}
 				}
 			}
 

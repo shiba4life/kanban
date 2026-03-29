@@ -515,9 +515,16 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 			throw new Error(ensured.error ?? "Could not ensure task worktree.");
 		}
 
+		// For pr_merge tasks, append PR monitoring instructions to the prompt
+		let taskPrompt = task.prompt;
+		if (task.autoReviewEnabled && (task.autoReviewMode === "pr_merge" || task.autoReviewMode === "pr")) {
+			const trashCommand = `kanban task trash --task-id ${task.id} --project-path ${workspaceRepoPath}`;
+			taskPrompt += `\n\n---\n## Auto-Review Instructions (pr_merge mode)\n\nWhen you have finished the task:\n1. Commit all changes, push to a feature branch, and create a pull request against \`${task.baseRef}\`.\n2. After creating the PR, monitor it until it merges. Check status with: \`gh pr view --json state,mergeable,statusCheckRollup\`\n3. If CI checks fail: investigate, fix the code, commit, push, and re-check.\n4. If there are merge conflicts: rebase against \`${task.baseRef}\`, resolve conflicts, force-push, and re-check.\n5. If the PR is open and all checks pass: wait 30 seconds, then check again. Repeat until merged.\n6. Once the PR is MERGED, run this command to complete the task: \`${trashCommand}\`\n7. If the PR is CLOSED without merging, stop and report the issue.\n\nDo NOT stop or pause after creating the PR. Keep monitoring until it reaches a terminal state.`;
+		}
+
 		const started = await runtimeClient.runtime.startTaskSession.mutate({
 			taskId: task.id,
-			prompt: task.prompt,
+			prompt: taskPrompt,
 			startInPlanMode: task.startInPlanMode,
 			baseRef: task.baseRef,
 		});
